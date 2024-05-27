@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>SpazeBlasterz</title>
+    <link rel="stylesheet" href="./css/reset.css">
+    <link rel="stylesheet" href="./css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="instruction__title">SpazeBlasterz</h1>
+        <div class="qr"></div>
+        <a class="url"></a>
+        <p class="instruction__text">Make sure your phone is connected to the same network as your computer before you
+            scan this QR-code.</p>
+    </div>
+    <canvas class="canvas hidden"></canvas>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <script>
+        {
+            let socket;
+            let score = 0;
+            let moveLeft = false;
+            let moveRight = false;
+            const bullets = [];
+            const ufos = [];
+
+            const init = () => {
+                socket = io.connect(`/`);
+                socket.on(`connect`, () => {
+                    console.log(`Connected: ${socket.id}`);
+
+                    const $url = document.querySelector(`.url`);
+                    const url = `${new URL(`/controller.html?id=${socket.id}`, window.location)}`;
+                    $url.textContent = url;
+                    $url.setAttribute(`href`, url);
+
+                    const typeNumber = 4;
+                    const errorCorrectionLevel = `L`;
+                    const qr = qrcode(typeNumber, errorCorrectionLevel);
+                    qr.addData(url);
+                    qr.make();
+                    document.querySelector(`.qr`).innerHTML = qr.createImgTag(4);
+                });
+
+                socket.on(`startGame`, () => {
+                    const $container = document.querySelector(`.container`);
+                    $container.classList.add(`hidden`);
+
+                    const $canvas = document.querySelector(`.canvas`);
+                    $canvas.classList.toggle(`hidden`);
+
+                    handleStartGame();
+                });
+            };
+
+            const handleStartGame = () => {
+                const $canvas = document.querySelector(`.canvas`);
+                const $ctx = $canvas.getContext(`2d`);
+                $canvas.width = window.innerWidth;
+                $canvas.height = window.innerHeight;
+
+                const spaceshipImg = new Image();
+                spaceshipImg.src = `./assets/img/spaceship.svg`;
+
+                const spaceship = {
+                    x: $canvas.width / 2,
+                    y: $canvas.height - 100,
+                    width: 70,
+                    height: 70,
+                    speed: 10
+                };
+
+                spaceshipImg.onload = () => {
+                    draw($ctx, spaceshipImg, spaceship);
+                };
+
+                setInterval(spawnUfo, (4500 - score));
+
+                socket.on(`orientationUpdate`, data => {
+                    if (data.degrees < -5) {
+                        moveLeft = true;
+                    } else if (data.degrees > 5) {
+                        moveRight = true;
+                    } else {
+                        moveLeft = false;
+                        moveRight = false;
+                    }
+                });
+
+                socket.on(`clickingUpdate`, () => {
+                    fireBullet(spaceship);
+                });
+            }
+
+            const draw = ($ctx, spaceshipImg, spaceship) => {
+                $ctx.clearRect(0, 0, $ctx.canvas.width, $ctx.canvas.height);
+
+                $ctx.drawImage(spaceshipImg, spaceship.x, spaceship.y, spaceship.width, spaceship.height);
+
+                for (let i = 0; i < ufos.length; i++) {
+                    const ufo = ufos[i];
+                    $ctx.drawImage(ufo.img, ufo.x, ufo.y, ufo.width, ufo.height);
+                }
+
+                for (let i = 0; i < bullets.length; i++) {
+                    const bullet = bullets[i];
+                    $ctx.fillStyle = bullet.color;
+                    $ctx.fillRect(bullet.x - (bullet.width / 2), bullet.y, bullet.width, bullet.height);
+                }
+
+                if (moveLeft) {
+                    spaceship.x = Math.max(spaceship.x - spaceship.speed, 0);
+                } else if (moveRight) {
+                    spaceship.x = Math.min(spaceship.x + spaceship.speed, $ctx.canvas.width - spaceship.width);
+                }
+
+                for (let i = 0; i < ufos.length; i++) {
+                    const ufo = ufos[i];
+                    ufo.y += ufo.speed;
+                    if (ufo.y > ($ctx.canvas.height - 150)) {
+                        ufos.splice(i, 1);
+                        i--;
+                        handleEndGame();
+                        return;
+                    }
+                }
+
+                for (let i = 0; i < bullets.length; i++) {
+                    const bullet = bullets[i];
+                    bullet.y -= bullet.speed;
+                    if (bullet.y < -bullet.height) {
+                        bullets.splice(i, 1);
+                        i--;
+                        continue;
+                    };
+                    checkCollisions();
+                };
+                requestAnimationFrame(() => draw($ctx, spaceshipImg, spaceship));
+            };
+
+            const spawnUfo = () => {
+                const $canvas = document.querySelector(`.canvas`);
+                const $ctx = $canvas.getContext(`2d`);
+
+                const ufoImg = new Image();
+                ufoImg.src = `./assets/img/ufo.svg`;
+
+                const ufo = {
+                    x: Math.random() * ($canvas.width - 100),
+                    y: 0,
+                    width: 100,
+                    height: 50,
+                    speed: 2.5,
+                    img: ufoImg
+                };
+                ufos.push(ufo);
+            };
+
+            const fireBullet = (spaceship) => {
+                const bullet = {
+                    x: spaceship.x + (spaceship.width / 2),
+                    y: spaceship.y - 10,
+                    width: 6,
+                    height: 30,
+                    speed: 5,
+                    color: `#00DBFF`
+                };
+                bullets.push(bullet);
+            };
+
+            const checkCollisions = () => {
+                for (let i = 0; i < bullets.length; i++) {
+                    const bullet = bullets[i];
+                    for (let j = 0; j < ufos.length; j++) {
+                        const ufo = ufos[j];
+                        if (
+                            bullet.x < ufo.x + ufo.width &&
+                            bullet.x + bullet.width > ufo.x &&
+                            bullet.y < ufo.y + ufo.height &&
+                            bullet.y + bullet.height > ufo.y
+                        ) {
+                            bullets.splice(i, 1);
+                            ufos.splice(j, 1);
+                            i--;
+                            j--;
+                            updateScore();
+                            break;
+                        };
+                    };
+                };
+            };
+
+            const updateScore = () => {
+                score = score + 50;
+            }
+
+            const handleEndGame = () => {
+                const $container = document.querySelector(`.container`);
+                $container.classList.toggle(`hidden`);
+                $container.innerHTML = `<h1 class="losing__title">GAME OVER</h1>
+                <p class="losing__score">Score: <span class="score">${score}</span></p>`;
+
+                const $canvas = document.querySelector(`.canvas`);
+                $canvas.classList.toggle(`hidden`);
+            };
+
+            init();
+        }
+    </script>
+</body>
+
+</html>

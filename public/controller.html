@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>SpazeBlasterz</title>
+    <link rel="stylesheet" href="./css/reset.css">
+    <link rel="stylesheet" href="./css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <img class="instruction__img" src="./assets/img/rotation.svg" alt="">
+        <p class="instruction__text">Get ready to blast off into space! Hold your phone in landscape position, then tilt
+            it left or right to move your spaceship and tap to shoot.</p>
+        <button class="instruction__button">Blast off!</button>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        {
+            let socket;
+            let lastShootingTime = 0;
+            const timeBetweenShots = 250;
+
+            const init = () => {
+                targetSocketId = getUrlParameter(`id`);
+                if (!targetSocketId) {
+                    alert(`Missing target ID in querystring`);
+                    return;
+                }
+                socket = io.connect(`/`);
+                socket.on(`connect`, () => {
+                    console.log(`Connected: ${socket.id}`);
+
+                    const $startButton = document.querySelector(`.instruction__button`);
+                    $startButton.addEventListener(`click`, e => handleStartButton(e));
+                    window.addEventListener(`deviceorientation`, e => handleOrientation(e));
+                    window.addEventListener(`click`, e => handleClick(e));
+                });
+            };
+
+            const getUrlParameter = name => {
+                name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+                const regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+                const results = regex.exec(location.search);
+                return results === null ? false : decodeURIComponent(results[1].replace(/\+/g, ' '));
+            };
+
+            const handleStartButton = e => {
+                e.preventDefault();
+                if (typeof DeviceOrientationEvent.requestPermission === `function`) {
+                    DeviceOrientationEvent.requestPermission()
+                        .then((response) => {
+                            handleStartGame();
+                            socket.emit(`startGame`, targetSocketId);
+                        })
+                        .catch(console.error);
+                } else {
+                    handleStartGame();
+                    socket.emit(`startGame`, targetSocketId);
+                };
+            }
+
+            const handleStartGame = () => {
+                const $container = document.querySelector(`.container`);
+
+                const $img = $container.querySelector(`.instruction__img`);
+                $img.src = `./assets/img/shooting.svg`;
+                $img.style.width = `18vw`;
+
+                const $text = $container.querySelector(`.instruction__text`);
+                $text.textContent = `TAP TO SHOOT`;
+                $text.style.fontSize = `6.5vw`;
+
+                const $button = $container.querySelector(`.instruction__button`);
+                $button.classList.add(`hidden`);
+            }
+
+            const handleOrientation = e => {
+                e.preventDefault();
+                socket.emit(`orientationUpdate`, targetSocketId, {
+                    degrees: (e.beta).toFixed(0),
+                });
+            };
+
+            const handleClick = e => {
+                e.preventDefault();
+                const now = Date.now();
+                const diff = now - lastShootingTime;
+                if (diff >= timeBetweenShots) {
+                    lastShootingTime = now;
+                    socket.emit(`clickingUpdate`, targetSocketId);
+                }
+            };
+
+            init();
+        }
+    </script>
+</body>
+
+</html>
